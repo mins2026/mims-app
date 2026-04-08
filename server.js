@@ -1,7 +1,4 @@
-// MIMS API Proxy Server
-// Hospede isso no Railway (railway.app) — gratuito para volumes baixos
-// Ele protege sua chave de API e serve o frontend
-
+// MIMS Server — Proxy seguro + Protótipo
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -14,17 +11,43 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── Rota de saúde
+// ── Rate limiting simples
+const rateLimit = {};
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  if (!rateLimit[ip]) rateLimit[ip] = { count: 0, reset: now + hour };
+  if (now > rateLimit[ip].reset) rateLimit[ip] = { count: 0, reset: now + hour };
+  rateLimit[ip].count++;
+  return rateLimit[ip].count <= 100;
+}
+
+// ── Saúde
 app.get('/health', (req, res) => {
-  res.json({ status: 'MIMS online 🌿', version: '1.0' });
+  res.json({ status: 'MIMS online 🌿', version: '3.0' });
 });
 
-// ── Proxy da API Anthropic (chave fica segura no servidor)
+// ── Protótipo principal
+app.get('/prototipo', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'prototipo.html'));
+});
+
+// ── Demo (alias)
+app.get('/demo', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'prototipo.html'));
+});
+
+// ── Proxy da API Anthropic (chave protegida no servidor)
 app.post('/api/chat', async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!apiKey) {
     return res.status(500).json({ error: 'Chave de API não configurada.' });
+  }
+
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Muitas requisições. Aguarde um momento.' });
   }
 
   try {
@@ -51,11 +74,18 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// ── Serve o frontend para qualquer rota não encontrada
+// ── Root → redireciona para /prototipo
+app.get('/', (req, res) => {
+  res.redirect('/prototipo');
+});
+
+// ── Fallback
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'prototipo.html'));
 });
 
 app.listen(PORT, () => {
   console.log(`🌿 MIMS rodando na porta ${PORT}`);
+  console.log(`   Protótipo: /prototipo`);
+  console.log(`   API proxy: POST /api/chat`);
 });
